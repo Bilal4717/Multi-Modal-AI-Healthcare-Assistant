@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Entrance Monitor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='mask.css') }}" />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+  </head>
+  <body>
+    <header class="top-bar">
+      <div class="brand">
+        <div class="logo-icon"><i class="fa-solid fa-eye"></i></div>
+        <div>
+          <h1>Diagnosify Mask Check</h1>
+          <p>Entrance Node 01 • Active</p>
+        </div>
+      </div>
+
+      <div class="system-status">
+        <span id="clock">12:00 PM</span>
+        <div class="status-pill"><span class="pulse-dot"></span> Online</div>
+      </div>
+    </header>
+
+    <main class="dashboard-grid">
+      <section
+        class="video-section"
+        id="videoContainer"
+        style="
+          position: relative;
+          width: 100%;
+          aspect-ratio: 4/3;
+          max-height: 80vh;
+          overflow: hidden;
+          background: #000;
+        "
+      >
+        <div class="live-indicator">LIVE FEED</div>
+
+        <div class="scan-beam"></div>
+
+        <div class="bounding-box" id="aiBox">
+          <div class="confidence-badge" id="aiLabel">Waiting...</div>
+        </div>
+
+        <img src="{{ url_for('video_feed') }}" 
+             style="width: 100%; height: 100%; object-fit: cover; border-radius: 12px; position: absolute; top: 0; left: 0; z-index: 1;" 
+        />
+        
+        <div class="video-placeholder" style="z-index: 0">
+          <i class="fa-solid fa-video"></i>
+          <p>Connecting to Camera...</p>
+        </div>
+      </section>
+
+      <section class="info-panel">
+        <div class="status-card neutral" id="statusCard">
+          <div class="status-icon-ring">
+            <i class="fa-solid fa-magnifying-glass" id="statusIcon"></i>
+          </div>
+          <h2 id="mainStatusText">SYSTEM ACTIVE</h2>
+          <p id="subStatusText">Scanning for faces...</p>
+
+          <div class="confidence-meter">
+            <span>AI Confidence</span>
+            <div class="bar-bg">
+              <div class="bar-fill" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="log-panel">
+          <h3><i class="fa-solid fa-clock-rotate-left"></i> Recent Activity</h3>
+          <ul class="log-list" id="logList"></ul>
+        </div>
+      </section>
+    </main>
+
+    </div>
+
+    <script>
+      setInterval(() => {
+        const now = new Date();
+        document.getElementById("clock").innerText = now.toLocaleTimeString(
+          [],
+          { hour: "2-digit", minute: "2-digit" }
+        );
+      }, 1000);
+
+      const videoContainer = document.getElementById("videoContainer");
+      const aiBox = document.getElementById("aiBox");
+      const aiLabel = document.getElementById("aiLabel");
+      const statusCard = document.getElementById("statusCard");
+      const statusIcon = document.getElementById("statusIcon");
+      const mainText = document.getElementById("mainStatusText");
+      const subText = document.getElementById("subStatusText");
+      const confBar = document.querySelector(".bar-fill");
+      const logList = document.getElementById("logList");
+
+      async function fetchStatus() {
+        try {
+          const response = await fetch("/status");
+          
+          if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+          
+          const data = await response.json();
+          updateUI(data);
+        } catch (error) {
+          aiLabel.innerText = "OFFLINE";
+          aiLabel.style.background = "#64748b";
+        }
+      }
+
+      function updateUI(data) {
+        confBar.style.width = `${data.confidence}%`;
+        aiLabel.innerText = `${data.confidence.toFixed(0)}% CONFIDENCE`;
+
+        if (data.status === "waiting") {
+          setVisualState("neutral");
+          statusIcon.className = "fa-solid fa-magnifying-glass";
+          mainText.innerText = "SCANNING";
+          subText.innerText = "Looking for faces...";
+          aiLabel.style.background = "var(--color-neutral, #64748b)";
+          return;
+        }
+
+        if (data.mask_detected) {
+          setVisualState("safe");
+          statusIcon.className = "fa-solid fa-check";
+          mainText.innerText = "ACCESS GRANTED";
+          subText.innerText = "Mask detected. Please proceed.";
+          aiLabel.style.background = "var(--color-safe, #10b981)";
+          logActivity(true);
+        } else {
+          setVisualState("danger");
+          statusIcon.className = "fa-solid fa-xmark";
+          mainText.innerText = "ENTRY DENIED";
+          subText.innerText = "Please wear a mask.";
+          aiLabel.style.background = "var(--color-danger, #ef4444)";
+          logActivity(false);
+        }
+      }
+
+      function setVisualState(state) {
+        const colors = { safe: "#10b981", danger: "#ef4444", neutral: "#64748b" };
+        const shadows = {
+          safe: "rgba(16, 185, 129, 0.2)",
+          danger: "rgba(239, 68, 68, 0.4)",
+          neutral: "rgba(100, 116, 139, 0.2)",
+        };
+
+        const color = colors[state];
+        const shadow = shadows[state];
+
+        videoContainer.style.borderColor = color;
+        videoContainer.style.boxShadow = `0 0 30px ${shadow}`;
+        aiBox.style.borderColor = color;
+        statusCard.className = `status-card ${state}`;
+      }
+
+      let lastLogState = null;
+      let lastLogTime = 0;
+
+      function logActivity(isSafe) {
+        const now = Date.now();
+        if (lastLogState !== isSafe || now - lastLogTime > 10000) {
+          const li = document.createElement("li");
+          li.className = "log-item";
+          const timeStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+          li.innerHTML = `
+                <span class="time">${timeStr}</span>
+                <span class="result ${isSafe ? "safe" : "danger"}">
+                    ${isSafe ? "Mask Detected" : "No Mask"}
+                </span>
+            `;
+
+          logList.prepend(li);
+          if (logList.children.length > 5) logList.lastElementChild.remove();
+
+          lastLogState = isSafe;
+          lastLogTime = now;
+        }
+      }
+
+      setInterval(fetchStatus, 200);
+
+      const sendBtn = document.getElementById('send-btn');
+      const userInput = document.getElementById('user-input');
+      const chatBody = document.getElementById('chat-body');
+      const chatWidget = document.getElementById('chat-widget');
+      const chatToggleBtn = document.getElementById('chat-toggle');
+      const chatCloseBtn = document.getElementById('chat-close');
+
+      chatToggleBtn.addEventListener('click', () => {
+        chatWidget.style.display = 'flex';
+        chatToggleBtn.style.display = 'none';
+      });
+
+      chatCloseBtn.addEventListener('click', () => {
+        chatWidget.style.display = 'none';
+        chatToggleBtn.style.display = 'flex';
+      });
+
+      function addMessage(text, sender) {
+        const messageDiv = document.createElement('div');
+        messageDiv.classList.add('message');
+        messageDiv.classList.add(sender === 'user' ? 'user-message' : 'bot-message');
+        messageDiv.textContent = text;
+        chatBody.appendChild(messageDiv);
+        chatBody.scrollTop = chatBody.scrollHeight;
+      }
+
+      async function handleSend() {
+        const text = userInput.value.trim();
+        if (text === "") return;
+
+        addMessage(text, 'user');
+        userInput.value = "";
+        userInput.disabled = true;
+
+        try {
+          const response = await fetch('/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: text }),
+          });
+
+          if (!response.ok) throw new Error('Network response was not ok');
+          const data = await response.json();
+          addMessage(data.response, 'bot');
+
+        } catch (error) {
+          addMessage("Sorry, I'm having trouble connecting to the server.", 'bot');
+        } finally {
+          userInput.disabled = false;
+          userInput.focus();
+        }
+      }
+
+      sendBtn.addEventListener('click', handleSend);
+      userInput.addEventListener('keypress', function (e) {
+        if (e.key === 'Enter') handleSend();
+      });
+    </script>
+  </body>
+</html>
